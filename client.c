@@ -10,7 +10,7 @@
 #define SERVER_FIFO "/tmp/server_fifo"
 #define CLIENT_FIFO_NAME "/tmp/client_fifo_%ld"
 #define CLIENT_FIFO_COMMANDS "/tmp/client_fifo_write_%ld"
-void send_request(int server_fifo_fd,const char *request_type, pid_t server_pid)
+void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid)
 {
     // Open the server FIFO for writing
     // Write the client's PID, server's PID and request type to the server FIFO
@@ -91,6 +91,9 @@ void receive_response(int server_fifo_fd)
             if (read(client_fifo_fd_read, buffer, sizeof(buffer)) > 0)
             {
                 printf("%s\n", buffer);
+                if(strcmp(buffer, "Queue is full. Please try again later.\n") == 0){
+                    break;
+                }
             }
             memset(buffer, 0, sizeof(buffer));
         }
@@ -119,7 +122,7 @@ int main(int argc, char *argv[])
         perror("open server fifo");
         exit(EXIT_FAILURE);
     }
-    send_request(server_fifo_fd,request_type, server_pid);
+    send_request(server_fifo_fd, request_type, server_pid);
     receive_response(server_fifo_fd);
 
     close(server_fifo_fd);
