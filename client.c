@@ -56,6 +56,23 @@ void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid
     close(client_fifo_fd_read);
     unlink(client_fifo_path);
 }*/
+int issize(const char* str, int a)
+{
+    int i = 0;
+    while(str[i] != '\0' && i < a)
+    {
+        if(str[i] != ' ' && (str[i] < '0' || str[i] > '9'))
+        {
+            return 0;
+        }
+        i++;
+    }
+    return 1;
+}
+int contains(const char* haystack, const char* needle)
+{
+    return strstr(haystack,needle) != NULL;
+}
 void receive_response(int server_fifo_fd)
 {
     // Create a FIFO for this client
@@ -82,15 +99,18 @@ void receive_response(int server_fifo_fd)
     char buffer[256] = {0};
     memset(buffer, 0, sizeof(buffer));
     printf("WHILEclient:\n");
+    fflush(stdin);
     while (1)
     {
         printf("Enter a comment: ");
         if (fgets(buffer, sizeof(buffer), stdin) != NULL)
         {
             // Remove the trailing newline character
+            if(buffer[0] == '\n' || buffer[0] == '\0')
+                continue;
             buffer[strcspn(buffer, "\n")] = 0;
-            printf("Sending to server: %s\n", buffer);
-            if (strcmp(buffer, "exit") == 0)
+            printf("Sending to server: %sa\n", buffer);
+            if (strcmp(buffer, "quit") == 0)
             {
                 break;
             }

@@ -1,0 +1,44 @@
+	This code, intended for AVR microcontrollers, is likely crafted for an Arduino board, evident from its utilization of UART (Universal Asynchronous Receiver/Transmitter) communication and ADC (Analog-to-Digital Converter) readings. It's designed to interface with peripherals like joysticks. When compiled and uploaded onto an AVR microcontroller, such as an Arduino Uno with an ATmega328P, the microcontroller will execute the specified functionality.
+
+The code initializes UART communication and ADC, reads joystick values using ADC, and sends the data over UART periodically. It's a simple example of interfacing a joystick with an AVR microcontroller.
+
+The program reads the X and Y values of a joystick, representing directional inputs (w, a, s, d), and the state of a switch (sw, when pressed). These inputs are then transmitted over UART for further processing or display.
+
+	Macro Definitions:
+	
+F_CPU: Specifies the CPU frequency as 16 MHz.
+BAUD: Defines the baud rate for UART communication, set to 9600.
+MY_UBRR: Determines the value for the UART Baud Rate Register based on the CPU frequency and desired baud rate.
+Function Prototypes:
+
+void UART_init(unsigned int ubrr): Initializes UART communication with the specified baud rate.
+void UART_transmit(unsigned char data): Transmits a single byte over UART.
+unsigned char UART_receive(void): Receives a single byte over UART.
+void UART_print(const char* str): Sends a string of characters over UART.
+void ADC_init(): Initializes the ADC for analog input.
+uint16_t ADC_read(uint8_t ch): Reads analog data from the specified ADC channel.
+void init_joystick(): Initializes the joystick and ADC.
+UART Initialization:
+
+UART_init: Configures the baud rate, enables receiver and transmitter, and sets the frame format for UART communication.
+UART Communication Functions:
+
+UART_transmit: Waits for the transmit buffer to be empty and then transmits a byte.
+UART_receive: Waits for data to be received and returns the received byte.
+UART_print: Sends a null-terminated string over UART by transmitting each character.
+ADC Initialization:
+
+ADC_init: Configures the ADC reference voltage and sets the ADC prescaler.
+Joystick Initialization:
+
+init_joystick: Initializes the ADC for reading joystick values and configures the joystick switch pin.
+	Main Function:
+
+Initializes UART and joystick.
+Reads joystick X and Y values using ADC and checks the state of the joystick switch.
+Formats the data into a string and sends it over UART repeatedly with a delay of 500 milliseconds.
+UART Communication Protocol: UART is a synchronous serial communication protocol commonly used for transmitting data between electronic devices. In this code, UART facilitates the transmission of data, including joystick X and Y values, and switch state, from the microcontroller to another device like a computer or another microcontroller.
+
+ADC Read: The ADC (Analog-to-Digital Converter) converts analog signals, such as voltage levels, into digital values for processing by the microcontroller. Here, the ADC reads analog values from the joystick's X and Y axes, converting them into digital values representing the joystick's position.
+
+	Overall, this code serves as a basic demonstration of how to interface a joystick with an AVR microcontroller and transmit the collected data over UART, suitable for introductory projects or learning purposes.
