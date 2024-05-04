@@ -15,7 +15,7 @@
 #define LOG_FILE "server_log.txt"
 #define CLIENT_FIFO_NAME "/tmp/client_fifo_%ld"
 #define CLIENT_FIFO_COMMANDS "/tmp/client_fifo_write_%ld"
-
+#define DEQUEUE "tmp/dequeue"
 int log_fd; // Global log file descriptor
 int num_clients = 0;
 
@@ -35,6 +35,14 @@ void handle_sigint(int sig)
     exit(0);
 }
 
+void sigusr1_handler(int signum) {
+    if (signum == SIGUSR1) {
+        // Handle client termination
+        printf("Received SIGUSR1\n");
+        num_clients--; // Decrement the count of active clients
+    }
+}
+
 void handle_sigchld(int sig)
 {
     // Clean up any terminated child processes
@@ -43,7 +51,7 @@ void handle_sigchld(int sig)
     while ((a = waitpid(-1, NULL, WNOHANG)) > 0)
     {
         printf("Child process %d terminated\n", a);
-        num_clients--;
+        // num_clients--;
     }
     printf("Num clients after = %d\n", num_clients);
 }
@@ -279,63 +287,16 @@ void serve_client(int client_fd_write, int client_fd_read)
         }
     }
     memset(buffer, 0, sizeof(buffer));
+    num_clients--;
     close(client_fd_write);
     close(client_fd_read);
-    // unlink(CLIENT_FIFO_COMMANDS);
-    // unlink(CLIENT_FIFO_NAME);
     printf("Client disconnected\n");
-}
-int handle_client(int client_fd_write, int client_fd_read, char *request_type, int max_number_of_clients, int *client_fd_writes)
-{
-    if (strcmp(request_type, "Connect") == 0)
-    {
-        // Handle "Connect" request
-        if (num_clients < max_number_of_clients)
-        {
-            serve_client(client_fd_write, client_fd_read);
-            return 1;
-        }
-        else
-        {
-            // Make the client wait until a spot becomes available
-            // TODO: Implement waiting mechanism
-            printf("Queue is full. CONNECT\n");
-            write(client_fd_write, "Queue is full. Please wait for a spot to become available.\n", 56);
-            return 0;
-        }
-    }
-    else if (strcmp(request_type, "tryConnect") == 0)
-    {
-        // Handle "tryConnect" request
-        if (num_clients < max_number_of_clients)
-        {
-            // Accept the client and fork a new process to handle it
-            // Child process
-            serve_client(client_fd_write, client_fd_read);
-            return 1;
-        }
-        else
-        {
-            // Inform the client that the queue is full
-            printf("Queue is full. TRYCONNECT\n");
-            write(client_fd_write, "Queue is full. Please try again later.\n", 39);
-            return 0;
-            // TODO: Implement mechanism to inform client
-        }
-    }
-    else
-    {
-        // Invalid request type
-        // printf("Invalid request type: %s\n", request_type);
-        fprintf(stderr, "Invalid request type: %s\n", request_type);
-        write(client_fd_write, "Invalid request type.\n", 23);
-        return 0;
-    }
+                kill(getppid(), SIGUSR1);
 }
 int open_read_fifo(int client_pid)
 {
     char client_fifo_read[256] = {0};
-    sprintf(client_fifo_read, CLIENT_FIFO_COMMANDS, (long) client_pid);
+    sprintf(client_fifo_read, CLIENT_FIFO_COMMANDS, (long)client_pid);
     mkfifo(client_fifo_read, 0666);
     int client_fd_read = open(client_fifo_read, O_RDONLY);
     // Store the client file descriptor
@@ -346,162 +307,147 @@ int open_read_fifo(int client_pid)
     }
     return client_fd_read;
 }
-int accept_client(int client_fd_write, int *client_fd_writes, int max_number_of_clients, Queue *client_queue , int server)
+int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_queue, int server)
 {
     // Read the client's request from the server FIFO
+    struct sigaction sa;
+    sa.sa_handler = sigusr1_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGUSR1, &sa, NULL);
     char buffer[256] = {0};
-    int server_fifo_fd = open(SERVER_FIFO, O_RDONLY);
-    if (num_clients < max_number_of_clients && read(server_fifo_fd, buffer, sizeof(buffer)) > 0)
+        int server_fifo_fd = open(SERVER_FIFO, O_RDONLY);
+    if (read(server_fifo_fd, buffer, sizeof(buffer)) > 0)
     {
         // Parse the client's PID, server's PID, and request type from the buffer
         long client_pid;
         long server_pid;
         char request_type[32];
-        printf("BUFFER = %s\n", buffer);
         char *token = strtok(buffer, ":");
-        printf("TOKEN = %s\n", token);
-        printf("IS TOKEN NULL = %d\n", token == NULL);
-        while (token != NULL)
+        printf("REQUSET RECEIVED\n");
+        sscanf(token, "%ld,%ld,%s", &client_pid, &server_pid, request_type);
+        printf("Received request from client %ld: %sa\n", client_pid, request_type);
+        printf("Server PID: %lda\n", server_pid);
+        // Check if the server's PID in the request matches the actual PID of the server
+        if (server_pid != server)
         {
-            sscanf(token, "%ld,%ld,%s", &client_pid, &server_pid, request_type);
-            printf("Received request from client %ld: %sa\n", client_pid, request_type);
-            printf("Server PID: %lda\n", server_pid);
-            // Check if the server's PID in the request matches the actual PID of the server
-            if (server_pid != server)
+            fprintf(stderr, "Server PID in the request does not match the actual PID of the server.\n");
+            return 1;
+        }
+        int client_fd_read;
+        // Create a new FIFO for this client
+        char client_fifo_write[256] = {0};
+        char client_fifo_read[256] = {0};
+        sprintf(client_fifo_write, CLIENT_FIFO_NAME, client_pid);
+        mkfifo(client_fifo_write, 0666);
+        // int client_fd_read;
+        if (client_fd_write == -1)
+        {
+            perror("open client fifo");
+            exit(EXIT_FAILURE);
+        }
+        // Check the request type
+        if (strcmp(request_type, "Connect") == 0)
+        {
+            // Handle "Connect" request
+            if (num_clients < max_number_of_clients)
             {
-                fprintf(stderr, "Server PID in the request does not match the actual PID of the server.\n");
-                return 1;
-            }
-
-            // Create a new FIFO for this client
-            char client_fifo_write[256] = {0};
-            char client_fifo_read[256] = {0};
-            sprintf(client_fifo_write, CLIENT_FIFO_NAME, client_pid);
-            mkfifo(client_fifo_write, 0666);
-            sprintf(client_fifo_read, CLIENT_FIFO_COMMANDS, client_pid);
-            mkfifo(client_fifo_read, 0666);
-            // Open the client FIFO for writing
-            int client_fd_write = open(client_fifo_write, O_WRONLY);
-            // int client_fd_read;
-            if (client_fd_write == -1)
-            {
-                perror("open client fifo");
-                exit(EXIT_FAILURE);
-            }
-            // client_fd_read = open_read_fifo(client_pid);
-            int client_fd_read = open(client_fifo_read, O_RDONLY);
-            // Store the client file descriptor
-            if (client_fd_read == -1)
-            {
-                perror("open client fifo");
-                exit(EXIT_FAILURE);
-            }
-            printf("FIFOLARDA MIZIK\n");
-            // Check the request type
-            if (strcmp(request_type, "Connect") == 0)
-            {
-                // Handle "Connect" request
-                if (num_clients < max_number_of_clients)
+                // Accept the client and fork a new process to handle it
+                // Child process
+        int client_fd_write = open(client_fifo_write, O_WRONLY);
+                client_fd_read = open_read_fifo(client_pid);
+                printf("Client connected = %ld , Num_clients = %d\n", client_pid, num_clients);
+                num_clients++;
+                pid_t pid = fork();
+                if (pid == 0)
                 {
-                    // Accept the client and fork a new process to handle it
                     // Child process
-                    printf("Client connected\n");
-                    pid_t pid = fork();
-                    if (pid == 0)
-                    {
-                        // Child process
-                        serve_client(client_fd_write, client_fd_read);
-                        exit(EXIT_SUCCESS);
-                    }
-                    else if (pid > 0)
-                    {
-                        // Parent process
-                        client_fd_writes[num_clients] = client_fd_write;
-                        num_clients++;
-                        printf("Num clients after forking in parent process = %d\n", num_clients);
-                        // Continue accepting new clients
-                    }
-                    else
-                    {
-                        // Fork failed
-                        perror("fork");
-                        exit(EXIT_FAILURE);
-                    }
+                    serve_client(client_fd_write, client_fd_read);
+                }
+                else if (pid > 0)
+                {
+                    // Parent process
+                    printf("Num clients after forking in parent process = %d\n", num_clients);
+                    // Continue accepting new clients
                 }
                 else
                 {
-                    // Queue is full, inform the client to wait
-                    printf("Queue is full. Client %ld is waiting for a spot.\n", client_pid);
-                    // Add client to the queue
-                    enqueue(client_queue, client_pid);
-                    // Inform client to wait
-                    char message[256];
-                    sprintf(message, "Queue is full. Please wait for a spot to become available. Your position in the queue is %d.\n", client_queue->size);
-                    // write(client_fd_write, message, strlen(message));
-                    printf("merhaba\n");
-                    
-                }
-            }
-            else if (strcmp(request_type, "tryConnect") == 0)
-            {
-                // Handle "tryConnect" request
-                if (num_clients < max_number_of_clients)
-                {
-                    // Accept the client and fork a new process to handle it
-                    // Child process
-                    // client_fd_read = open_read_fifo(client_pid);
-                    pid_t pid = fork();
-                    if (pid == 0)
-                    {
-                        // Child process
-                        serve_client(client_fd_write, client_fd_read);
-                        return 1;
-                    }
-                    else if (pid > 0)
-                    {
-                        // Parent process
-                        client_fd_writes[num_clients] = client_fd_write;
-                        num_clients++;
-                        printf("Num clients after forking in parent process = %d\n", num_clients);
-                        // Continue accepting new clients
-                    }
-                    else
-                    {
-                        // Fork failed
-                        perror("fork");
-                        exit(EXIT_FAILURE);
-                    }
-                }
-                else
-                { // not working
-                    // Queue is full, inform the client and let it leave without waiting
-                    printf("Queue is full. Client %ld leaving without waiting.\n", client_pid);
-                    // Inform client to leave without waiting
-                    char message[256] = "Queue is full. Please try again later.\n";
-                    write(client_fd_write, message, strlen(message));
-                    kill(client_pid, SIGTERM);
-                    // Close file descriptors and clean up
-                    close(client_fd_write);
-                    // close(client_fd_read);
-                    unlink(CLIENT_FIFO_COMMANDS);
-                    // unlink(CLIENT_FIFO_NAME);
-                    return 0;
-                    // how to kill this process
+                    // Fork failed
+                    perror("fork");
+                    exit(EXIT_FAILURE);
                 }
             }
             else
             {
-                // Invalid request type
-                fprintf(stderr, "Invalid request type: %s\n", request_type);
-                write(client_fd_write, "Invalid request type.\n", 23);
+                // Queue is full, inform the client to wait
+                printf("Server is full. Client %ld is waiting for a spot.\n", client_pid);
+                // Add client to the queue
+                enqueue(client_queue, client_pid);
+                // Inform client to wait
+                char message[256];
+                sprintf(message, "Server is full. Please wait for a spot to become available. Your position in the queue is %d.\n", client_queue->size);
+                // write(client_fd_write, message, strlen(message));
+                printf("merhaba\n");
+            }
+        }
+        else if (strcmp(request_type, "tryConnect") == 0)
+        {
+            // Handle "tryConnect" request
+            if (num_clients < max_number_of_clients)
+            {
+                // Accept the client and fork a new process to handle it
+                // Child process
+                int client_fd_write = open(client_fifo_write, O_WRONLY);
+                client_fd_read = open_read_fifo(client_pid);
+                printf("Client connected = %ld , Num_clients = %d\n", client_pid, num_clients);
+                num_clients++;
+                pid_t pid = fork();
+                if (pid == 0)
+                {
+                    // Child process
+                    serve_client(client_fd_write, client_fd_read);
+                }
+                else if (pid > 0)
+                {
+                    // Parent process
+                    printf("Num clients after forking in parent process = %d\n", num_clients);
+                    // Continue accepting new clients
+                }
+                else
+                {
+                    // Fork failed
+                    perror("fork");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else
+            { // not working
+                // Queue is full, inform the client and let it leave without waiting
+                printf("Server is full. Client %ld leaving without waiting.\n", client_pid);
+                // Inform client to leave without waiting
+                char message[256] = "Server is full. Please try again later.\n";
+                write(client_fd_write, message, strlen(message));
+                kill(client_pid, SIGTERM);
                 // Close file descriptors and clean up
                 close(client_fd_write);
                 close(client_fd_read);
                 unlink(CLIENT_FIFO_COMMANDS);
                 unlink(CLIENT_FIFO_NAME);
-                return 1;
+                return 0;
+                // how to kill this process
             }
-            token = strtok(NULL, ":");
+        }
+        else
+        {
+            // Invalid request type
+            fprintf(stderr, "Invalid request type: %s\n", request_type);
+            write(client_fd_write, "Invalid request type.\n", 23);
+            // Close file descriptors and clean up
+            close(client_fd_write);
+            close(client_fd_read);
+            unlink(CLIENT_FIFO_COMMANDS);
+            unlink(CLIENT_FIFO_NAME);
+            return 1;
         }
     }
 
@@ -509,8 +455,9 @@ int accept_client(int client_fd_write, int *client_fd_writes, int max_number_of_
     if (!isEmpty(client_queue) && num_clients < max_number_of_clients)
     {
         // Dequeue the first client from the queue
-        printf("QUEUE SIZE = %d\n", client_queue->size);
+        printf("\nQUEUE SIZE = %d\n", client_queue->size);
         long queued_client_pid = dequeue(client_queue);
+        printf("\nDequeued client %ld from the queue\n", queued_client_pid);
         // Create FIFO names for the dequeued client
         char queued_client_fifo_write[256] = {0};
         char queued_client_fifo_read[256] = {0};
@@ -518,22 +465,22 @@ int accept_client(int client_fd_write, int *client_fd_writes, int max_number_of_
         sprintf(queued_client_fifo_read, CLIENT_FIFO_COMMANDS, queued_client_pid);
 
         // Open the client FIFOs for writing and reading
-        int queued_client_fd_write = open(queued_client_fifo_write, O_WRONLY);
-        int queued_client_fd_read = open(queued_client_fifo_read, O_RDONLY);
 
-        // Fork a new process to handle the client
+        // // Fork a new process to handle the client
+        // int queued_client_fd_read = open(queued_client_fifo_read, O_RDONLY);
+        num_clients++;
         pid_t pid = fork();
         if (pid == 0)
         {
             // Child process
-            handle_client(queued_client_fd_write, queued_client_fd_read, "Connect", max_number_of_clients, client_fd_writes);
+            int queued_client_fd_write = open(queued_client_fifo_write, O_WRONLY);
+            int queued_client_fd_read = open(queued_client_fifo_read, O_RDONLY);
+            serve_client(queued_client_fd_write, queued_client_fd_read);
             exit(EXIT_SUCCESS);
         }
         else if (pid > 0)
         {
             // Parent process
-            client_fd_writes[num_clients] = queued_client_fd_write;
-            num_clients++;
             printf("Num clients after forking in parent process = %d\n", num_clients);
             // Continue accepting new clients
         }
@@ -579,6 +526,10 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    sa.sa_handler = sigusr1_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGUSR1, &sa, NULL);
     // Directory setup
     if (mkdir(dir_name, 0777) == -1)
     {
@@ -610,7 +561,6 @@ int main(int argc, char *argv[])
 
     printf("Server started with PID %d...\n", getpid());
     printf("Waiting for clients...\n");
-    int *client_fd_writes = calloc(max_number_of_clients, sizeof(int));
     // Array to store client file descriptors
     Queue *client_queue;
     client_queue = createQueue();
@@ -625,12 +575,11 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        if(num_clients < max_number_of_clients)
-            accept_client(server_fifo_fd, client_fd_writes, max_number_of_clients, client_queue , server_pid);
+        accept_client(server_fifo_fd, max_number_of_clients, client_queue, server_pid);
+        // printf("Num clients = %d\n", num_clients);
     }
 
     close(log_fd);
-    free(client_fd_writes);
     close(server_fifo_fd);
     unlink(SERVER_FIFO);
     destroyQueue(client_queue);

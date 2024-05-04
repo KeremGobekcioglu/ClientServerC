@@ -6,10 +6,19 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 #define SERVER_FIFO "/tmp/server_fifo"
 #define CLIENT_FIFO_NAME "/tmp/client_fifo_%ld"
 #define CLIENT_FIFO_COMMANDS "/tmp/client_fifo_write_%ld"
+
+void handle_sigint(int sig) {
+    // Perform any necessary cleanup tasks here
+
+    // Exit the program
+    exit(EXIT_SUCCESS);
+}
+
 void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid)
 {
     // Open the server FIFO for writing
@@ -50,8 +59,8 @@ void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid
 void receive_response(int server_fifo_fd)
 {
     // Create a FIFO for this client
-    char client_fifo_path[256];
-    char client_fifo_path_commands[256];
+    char client_fifo_path[256] = {0};
+    char client_fifo_path_commands[256] = {0};
     sprintf(client_fifo_path, CLIENT_FIFO_NAME, (long)getpid());
     mkfifo(client_fifo_path, 0666);
     sprintf(client_fifo_path_commands, CLIENT_FIFO_COMMANDS, (long)getpid());
@@ -109,6 +118,10 @@ void receive_response(int server_fifo_fd)
 
 int main(int argc, char *argv[])
 {
+        if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
     if (argc != 3)
     {
         fprintf(stderr, "Usage: %s <request_type> <server_pid>\n", argv[0]);
