@@ -19,6 +19,8 @@ void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid
     printf("Sending to server: %s\n", buffer);
     printf("Client pid = %ld\n", (long)getpid());
     write(server_fifo_fd, buffer, strlen(buffer));
+    // close(server_fifo_fd);
+    // unlink(SERVER_FIFO);
     memset(buffer, 0, sizeof(buffer));
 }
 
@@ -69,11 +71,11 @@ void receive_response(int server_fifo_fd)
     }
     // Read the server's response from the client FIFO
     char buffer[256] = {0};
+    memset(buffer, 0, sizeof(buffer));
     printf("WHILEclient:\n");
     while (1)
     {
         printf("Enter a comment: ");
-        memset(buffer, 0, sizeof(buffer));
         if (fgets(buffer, sizeof(buffer), stdin) != NULL)
         {
             // Remove the trailing newline character
@@ -85,16 +87,16 @@ void receive_response(int server_fifo_fd)
             }
             // Write the command to the server
             write(client_fifo_fd_write, buffer, strlen(buffer));
-
-            // Read the response from the server
-            memset(buffer, 0, sizeof(buffer));
             if (read(client_fifo_fd_read, buffer, sizeof(buffer)) > 0)
             {
                 printf("%s\n", buffer);
-                if(strcmp(buffer, "Queue is full. Please try again later.\n") == 0){
-                    break;
+                if (strcmp(buffer, "Queue is full. Please try again later.\n") == 0)
+                {
+                    return;
                 }
             }
+
+            // Read the response from the server
             memset(buffer, 0, sizeof(buffer));
         }
     }
@@ -125,6 +127,6 @@ int main(int argc, char *argv[])
     send_request(server_fifo_fd, request_type, server_pid);
     receive_response(server_fifo_fd);
 
-    close(server_fifo_fd);
+    // close(server_fifo_fd);
     return 0;
 }
