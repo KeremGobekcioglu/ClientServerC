@@ -1,0 +1,90 @@
+Server started. PID: 2949
+List command executed. Client PID = 2950
+
+List command executed. Client PID = 2950
+
+Client disconnected with PID: 2950
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 2963
+List command executed. Client PID = 2964
+
+List command executed. Client PID = 2964
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 2977
+Client disconnected with PID: 2978
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 2992
+List command executed. Client PID = 2993
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3006
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3031
+writeT command executed. Client PID = 3032
+
+List command executed. Client PID = 3032
+
+File downloaded successfully.
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3045
+Received SIGINT. Server is shutting down...
+Server started. PID: 3059
+Received SIGINT. Server is shutting down...
+Server started. PID: 3073
+List command executed. Client PID = 3074
+
+Client disconnected with PID: 3074
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3087
+Client disconnected with PID: 3089
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3102
+Client disconnected with PID: 3103
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3116
+Client disconnected with PID: 3117
+
+Received SIGINT. Server is shutting down...
+Server started. PID: 3130
+Received SIGINT. Server is shutting down...
+Client disconnected with PID: 3131
+
+Server started. PID: 3144
+Received SIGINT. Server is shutting down...
+Client disconnected with PID: 3145
+
+Server started. PID: 3158
+List command executed. Client PID = 3159
+
+List command executed. Client PID = 3159
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
+Server started. PID: 3172
+List command executed. Client PID = 3173
+
+Server archived successfully.
+File uploaded successfully.
+List command executed. Client PID = 3173
+
+List command executed. Client PID = 3173
+
+Client disconnected with PID: 3173
+
+Received SIGINT. Server is shutting down...
+Received SIGINT. Server is shutting down...
