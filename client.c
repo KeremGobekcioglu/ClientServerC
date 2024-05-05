@@ -12,7 +12,8 @@
 #define CLIENT_FIFO_NAME "/tmp/client_fifo_%ld"
 #define CLIENT_FIFO_COMMANDS "/tmp/client_fifo_write_%ld"
 
-void handle_sigint(int sig) {
+void handle_sigint(int sig)
+{
     // Perform any necessary cleanup tasks here
 
     // Exit the program
@@ -56,12 +57,12 @@ void send_request(int server_fifo_fd, const char *request_type, pid_t server_pid
     close(client_fifo_fd_read);
     unlink(client_fifo_path);
 }*/
-int issize(const char* str, int a)
+int issize(const char *str, int a)
 {
     int i = 0;
-    while(str[i] != '\0' && i < a)
+    while (str[i] != '\0' && i < a)
     {
-        if(str[i] != ' ' && (str[i] < '0' || str[i] > '9'))
+        if (str[i] != ' ' && (str[i] < '0' || str[i] > '9'))
         {
             return 0;
         }
@@ -69,9 +70,34 @@ int issize(const char* str, int a)
     }
     return 1;
 }
-int contains(const char* haystack, const char* needle)
+int contains(const char *haystack, const char *needle)
 {
-    return strstr(haystack,needle) != NULL;
+    return strstr(haystack, needle) != NULL;
+}
+int possible_commands(char *str)
+{
+    // help , list , archServer, killServer , upload , download , writeT , readF
+    if (contains(str, "help") || contains(str, "list") ||
+        contains(str, "archServer") || contains(str, "killServer") ||
+        contains(str, "upload") || contains(str, "download") ||
+        contains(str, "writeT") || contains(str, "readF"))
+    {
+        return 1;
+    }
+}
+void clean_fifo(int fd)
+{
+    char buffer[256];
+    ssize_t bytes_read;
+    do
+    {
+        bytes_read = read(fd, buffer, sizeof(buffer));
+        if (bytes_read == -1)
+        {
+            perror("Error reading from FIFO");
+            exit(EXIT_FAILURE);
+        }
+    } while (bytes_read > 0);
 }
 void receive_response(int server_fifo_fd)
 {
@@ -96,40 +122,57 @@ void receive_response(int server_fifo_fd)
         exit(EXIT_FAILURE);
     }
     // Read the server's response from the client FIFO
-    char buffer[256] = {0};
-    memset(buffer, 0, sizeof(buffer));
+    char buffer_for_write[256] = {0};
+    char buffer_for_read[1024] = {0};
+    memset(buffer_for_write, 0, sizeof(buffer_for_write));
+    memset(buffer_for_read, 0, sizeof(buffer_for_read));
     printf("WHILEclient:\n");
     fflush(stdin);
     while (1)
     {
         printf("Enter a comment: ");
-        if (fgets(buffer, sizeof(buffer), stdin) != NULL)
+        if (fgets(buffer_for_write, sizeof(buffer_for_write), stdin) != NULL)
         {
             // Remove the trailing newline character
-            if(buffer[0] == '\n' || buffer[0] == '\0')
+            if (buffer_for_write[0] == '\n' || buffer_for_write[0] == '\0')
                 continue;
-            buffer[strcspn(buffer, "\n")] = 0;
-            printf("Sending to server: %sa\n", buffer);
-            if (strcmp(buffer, "quit") == 0)
+            buffer_for_write[strcspn(buffer_for_write, "\n")] = 0;
+            printf("Sending to server: %sa\n", buffer_for_write);
+            if (strcmp(buffer_for_write, "quit") == 0)
             {
                 break;
             }
             // Write the command to the server
-            write(client_fifo_fd_write, buffer, strlen(buffer));
-            if (read(client_fifo_fd_read, buffer, sizeof(buffer)) > 0)
+            if (possible_commands(buffer_for_write) == 1)
             {
-                printf("%s\n", buffer);
-                if (strcmp(buffer, "Queue is full. Please try again later.\n") == 0)
+
+                write(client_fifo_fd_write, buffer_for_write, strlen(buffer_for_write));
+                if (read(client_fifo_fd_read, buffer_for_read, sizeof(buffer_for_read)) > 0)
                 {
-                    return;
+                    printf("%s\n", buffer_for_read);
+                    if (strcmp(buffer_for_read, "Queue is full. Please try again later.\n") == 0)
+                    {
+                        return;
+                    }
+                    // memset(buffer_for_read, 0, sizeof(buffer_for_read));
                 }
+                if(strcmp(buffer_for_write,"killServer")==0)
+                {
+                    printf("SERVER SHUTDOWN\n");
+                    break;
+                }
+            }
+            else
+            {
+                printf("Invalid command\n");
             }
 
             // Read the response from the server
-            memset(buffer, 0, sizeof(buffer));
         }
+        memset(buffer_for_write, 0, sizeof(buffer_for_write));
+            memset(buffer_for_read, 0, sizeof(buffer_for_read));
     }
-    memset(buffer, 0, sizeof(buffer));
+    printf("Client is exiting\n");
     close(client_fifo_fd_read);
     close(client_fifo_fd_write);
     unlink(client_fifo_path_commands);
@@ -138,7 +181,8 @@ void receive_response(int server_fifo_fd)
 
 int main(int argc, char *argv[])
 {
-        if (signal(SIGINT, handle_sigint) == SIG_ERR) {
+    if (signal(SIGINT, handle_sigint) == SIG_ERR)
+    {
         perror("signal");
         exit(EXIT_FAILURE);
     }

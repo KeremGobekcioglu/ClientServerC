@@ -86,6 +86,241 @@ void list(int client_fd_write)
         closedir(d);
     }
 }
+// STRTOK
+int write_to_file(const char *filename, const char *content)
+{
+    // Open the file with write mode, creating if it doesn't exist, and append at the end
+    int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+    if (fd == -1)
+    {
+        perror("open");
+        write(fd, "Error opening file.\n", 20);
+        return 0;
+    }
+
+    // Write content to the file
+    if (write(fd, content, strlen(content)) == -1)
+    {
+        perror("write");
+        write(fd, "Error writing content to file.\n", 30);
+        return 0;
+    }
+
+    // Append newline if necessary
+    if (content[strlen(content) - 1] != '\n')
+    {
+        if (write(fd, "\n", 1) == -1)
+        {
+            perror("write");
+            write(fd, "Error writing newline character.\n", 31);
+            return 0;
+        }
+    }
+
+    close(fd);
+    return 1;
+}
+int readF(int client_fd_write, char *buffer)
+{
+    char *filename = strtok(NULL, " ");
+    if (filename == NULL)
+    {
+        char message[] = "Missing file name.\n";
+        write(client_fd_write, message, sizeof(message));
+        return 0;
+    }
+
+    char *line_number_str = strtok(NULL, " ");
+    int line_number = line_number_str != NULL ? atoi(line_number_str) : -1;
+    printf("line number = %d\n", line_number);
+    int file = open(filename, O_RDONLY);
+    if (file < 0)
+    {
+        char message[] = "Could not open file.\n";
+        write(client_fd_write, message, sizeof(message));
+        return 0;
+    }
+    char line[256] = {0};
+    int current_line_number = 1;
+    char *file_contents = NULL;
+    size_t file_size = 0;
+
+    if (line_number == -1)
+    {
+        // Count the number of bytes in the file
+        char ch;
+        while (read(file, &ch, 1) > 0)
+        {
+            file_size++;
+        }
+
+        // Allocate an array of the appropriate size
+        file_contents = malloc(file_size + 1); // +1 for the null terminator
+
+        // Go back to the beginning of the file
+        lseek(file, 0, SEEK_SET);
+
+        // Read the entire file into the array
+        read(file, file_contents, file_size);
+
+        // Null-terminate the string
+        file_contents[file_size] = '\0';
+    }
+    else
+    {
+        // Read the specified line
+        ssize_t n;
+        while ((n = read(file, line, sizeof(line) - 1)) > 0)
+        {
+            line[n] = '\0'; // Null-terminate the string
+            if (line_number == current_line_number)
+            {
+                write(client_fd_write, line, n);
+                break;
+            }
+            current_line_number++;
+            memset(line, 0, sizeof(line));
+        }
+    }
+
+    close(file);
+
+    if (file_contents != NULL)
+    {
+        // how can i write an integer
+        //  char str[12];
+        //  sprintf(str,"%d",(int)file_size);
+        //  printf("%s",str);
+        printf("%s\n", file_contents);
+        //  write(client_fd_write, str, sizeof(str));
+        //  Write the entire file to the client
+        printf("file_size = %d\n", file_size);
+        write(client_fd_write, file_contents, sizeof(file_contents));
+        free(file_contents);
+    }
+    return 1;
+}
+
+int upload_file(int client_fd_write, char *filename)
+{
+    // Open the source file in the client's directory
+    char src_path[256];
+    sprintf(src_path, "Client_%d/%s", getpid(), filename);
+    int src_fd = open(src_path, O_RDONLY);
+    if (src_fd == -1)
+    {
+        perror("Could not open source file");
+        write(client_fd_write, "Could not open source file.", 27);
+        return 0;
+    }
+
+    // Open the destination file in the server's directory
+    int dest_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dest_fd == -1)
+    {
+        perror("Could not open destination file");
+        close(src_fd);
+        write(client_fd_write, "Could not open destination file.", 32);
+        return 0;
+    }
+
+    // Read the source file byte by byte and write it to the destination file
+    char byte;
+    ssize_t bytes_read;
+    int counter = 0;
+    while ((bytes_read = read(src_fd, &byte, 1)) > 0)
+    {
+        if (write(dest_fd, &byte, 1) != 1)
+        {
+            perror("Write error");
+            write(client_fd_write, "Write error.", 12);
+            close(src_fd);
+            close(dest_fd);
+            return 0;
+        }
+        ++counter;
+    }
+    printf("Uploaded %d bytes\n", counter);
+    // Check if read error occurred
+    if (bytes_read == -1)
+    {
+        perror("Read error");
+        write(client_fd_write, "Read error.", 11);
+        close(src_fd);
+        close(dest_fd);
+        return 0;
+    }
+
+    // Close the file descriptors
+    close(src_fd);
+    close(dest_fd);
+
+    write(client_fd_write, "File uploaded successfully.", 27);
+    return 1;
+}
+int download_file(int client_fd_write, char *filename)
+{
+    // Open the source file in the server's directory
+    printf("filename = %s\n", filename);
+    int src_fd = open(filename, O_RDONLY);
+    if (src_fd == -1)
+    {
+        perror("Could not open source file");
+        write(client_fd_write, "Could not open source file.", 27);
+        return 0;
+    }
+
+    // Create a directory with the PID of the current process
+    char dir_name[256];
+    sprintf(dir_name, "Client_%d", getpid());
+
+    // Open the destination file in the client's directory
+    char dest_path[256];
+    sprintf(dest_path, "%s/%s", dir_name, filename);
+    int dest_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dest_fd == -1)
+    {
+        perror("Could not open destination file");
+        close(src_fd);
+        write(client_fd_write, "Could not open destination file.", 32);
+        return 0;
+    }
+
+    // Read the source file byte by byte and write it to the destination file
+    char byte;
+    ssize_t bytes_read;
+    int counter = 0;
+    while ((bytes_read = read(src_fd, &byte, 1)) > 0)
+    {
+        if (write(dest_fd, &byte, 1) != 1)
+        {
+            perror("Write error");
+            write(client_fd_write, "Write error.", 12);
+            close(src_fd);
+            close(dest_fd);
+            return 0;
+        }
+        ++counter;
+    }
+    printf("Downloaded %d bytes\n", counter);
+    // Check if read error occurred
+    if (bytes_read == -1)
+    {
+        perror("Read error");
+        write(client_fd_write, "Read error.", 11);
+        close(src_fd);
+        close(dest_fd);
+        return 0;
+    }
+
+    // Close the file descriptors
+    close(src_fd);
+    close(dest_fd);
+
+    write(client_fd_write, "File downloaded.", 17);
+    return 1;
+}
+
 void command_help(int client_fd_write, char *command)
 {
     char message[256];
@@ -151,225 +386,62 @@ void command_help(int client_fd_write, char *command)
         }
     }
 }
-// STRTOK
-void write_to_file(const char *filename, const char *content)
+int archive_server_files(int client_fd_write, char *filename, char *server_dir_name)
 {
-    // Open the file with write mode, creating if it doesn't exist, and append at the end
-    int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    if (fd == -1)
+    printf("Archiving the current contents of the server...\n");
+    write(client_fd_write, "Archiving the current contents of the server...\n", 46);
+    char server_dir[50];
+    sprintf(server_dir, "%s", server_dir_name);
+    // Create a child process
+    pid_t pid = fork();
+
+    if (pid < 0)
     {
-        perror("open");
-        return;
+        // Fork failed
+        printf("Fork failed.\n");
+        return 0;
     }
-
-    // Write content to the file
-    if (write(fd, content, strlen(content)) == -1)
+    else if (pid == 0)
     {
-        perror("write");
-    }
+        // Child process
+        printf("Creating archive directory...\n");
 
-    // Append newline if necessary
-    if (content[strlen(content) - 1] != '\n')
-    {
-        if (write(fd, "\n", 1) == -1)
-        {
-            perror("write");
-        }
-    }
+        // Call the tar utility to create a tar archive of the server directory
+        printf("Calling tar utility... child PID %d\n", getpid());
+        execl("/bin/tar", "tar", "-C", server_dir, "-cvf", filename, server_dir_name, NULL);
 
-    close(fd);
-}
-void readF(int client_fd_write, char *buffer)
-{
-    char *filename = strtok(NULL, " ");
-    if (filename == NULL)
-    {
-        char message[] = "Missing file name.\n";
-        write(client_fd_write, message, sizeof(message));
-        return;
-    }
-
-    char *line_number_str = strtok(NULL, " ");
-    int line_number = line_number_str != NULL ? atoi(line_number_str) : -1;
-    printf("line number = %d\n", line_number);
-    int file = open(filename, O_RDONLY);
-    if (file < 0)
-    {
-        char message[] = "Could not open file.\n";
-        write(client_fd_write, message, sizeof(message));
-        return;
-    }
-    char line[256] = {0};
-    int current_line_number = 1;
-    char *file_contents = NULL;
-    size_t file_size = 0;
-
-    if (line_number == -1)
-    {
-        // Count the number of bytes in the file
-        char ch;
-        while (read(file, &ch, 1) > 0)
-        {
-            file_size++;
-        }
-
-        // Allocate an array of the appropriate size
-        file_contents = malloc(file_size + 1); // +1 for the null terminator
-
-        // Go back to the beginning of the file
-        lseek(file, 0, SEEK_SET);
-
-        // Read the entire file into the array
-        read(file, file_contents, file_size);
-
-        // Null-terminate the string
-        file_contents[file_size] = '\0';
+        // If execlp returns, it means there was an error
+        printf("execlp failed.\n");
+        exit(EXIT_FAILURE);
     }
     else
     {
-        // Read the specified line
-        ssize_t n;
-        while ((n = read(file, line, sizeof(line) - 1)) > 0)
+        // Parent process
+        // Wait for the child process to finish
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         {
-            line[n] = '\0'; // Null-terminate the string
-            if (line_number == current_line_number)
-            {
-                write(client_fd_write, line, n);
-                break;
-            }
-            current_line_number++;
-            memset(line, 0, sizeof(line));
+            printf("Child returned with SUCCESS.\n");
+        }
+        else
+        {
+            printf("Child process failed.\n");
         }
     }
 
-    close(file);
+    printf("Copying the archive file...\n");
+    // Copy the archive file code here...
+    write(client_fd_write, "Copying the archive file...\n", 28);
 
-    if (file_contents != NULL)
-    {
-        // how can i write an integer
-        //  char str[12];
-        //  sprintf(str,"%d",(int)file_size);
-        //  printf("%s",str);
-        //  printf("%s\n",file_contents);
-        //  write(client_fd_write, str, sizeof(str));
-        //  Write the entire file to the client
-        write(client_fd_write, file_contents, sizeof(file_contents));
-        free(file_contents);
-    }
+    printf("Removing archive directory...\n");
+    // Remove the archive directory code here...
+    write(client_fd_write, "Removing archive directory...\n", 31);
+    printf("SUCCESS. Server side files are archived in \"%s\". Download this using download function.\n", filename);
+    download_file(client_fd_write, filename);
+    write(client_fd_write, "SUCCESS. Server side files are archived. Download this using download function.\n", 76);
 }
-
-void upload_file(int client_fd_write, char *filename)
-{
-    // Open the source file in the client's directory
-    char src_path[256];
-    sprintf(src_path, "Client_%d/%s", getpid(), filename);
-    int src_fd = open(src_path, O_RDONLY);
-    if (src_fd == -1)
-    {
-        perror("Could not open source file");
-        return;
-    }
-
-    // Open the destination file in the server's directory
-    int dest_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (dest_fd == -1)
-    {
-        perror("Could not open destination file");
-        close(src_fd);
-        write(client_fd_write, "Could not open destination file.", 32);
-        return;
-    }
-
-    // Read the source file byte by byte and write it to the destination file
-    char byte;
-    ssize_t bytes_read;
-    int counter = 0;
-    while ((bytes_read = read(src_fd, &byte, 1)) > 0)
-    {
-        if (write(dest_fd, &byte, 1) != 1)
-        {
-            perror("Write error");
-            close(src_fd);
-            close(dest_fd);
-            return;
-        }
-        ++counter;
-    }
-    printf("Uploaded %d bytes\n", counter);
-    // Check if read error occurred
-    if (bytes_read == -1)
-    {
-        perror("Read error");
-        close(src_fd);
-        close(dest_fd);
-        return;
-    }
-
-    // Close the file descriptors
-    close(src_fd);
-    close(dest_fd);
-
-    write(client_fd_write, "File uploaded successfully.", 27);
-}
-void download_file(int client_fd_write, char *filename)
-{
-    // Open the source file in the server's directory
-    printf("filename = %s\n", filename);
-    int src_fd = open(filename, O_RDONLY);
-    if (src_fd == -1)
-    {
-        perror("Could not open source file");
-        return;
-    }
-
-    // Create a directory with the PID of the current process
-    char dir_name[256];
-    sprintf(dir_name, "Client_%d", getpid());
-
-    // Open the destination file in the client's directory
-    char dest_path[256];
-    sprintf(dest_path, "%s/%s", dir_name, filename);
-    int dest_fd = open(dest_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (dest_fd == -1)
-    {
-        perror("Could not open destination file");
-        close(src_fd);
-        write(client_fd_write, "Could not open destination file.", 32);
-        return;
-    }
-
-    // Read the source file byte by byte and write it to the destination file
-    char byte;
-    ssize_t bytes_read;
-    int counter = 0;
-    while ((bytes_read = read(src_fd, &byte, 1)) > 0)
-    {
-        if (write(dest_fd, &byte, 1) != 1)
-        {
-            perror("Write error");
-            close(src_fd);
-            close(dest_fd);
-            return;
-        }
-        ++counter;
-    }
-    printf("Downloaded %d bytes\n", counter);
-    // Check if read error occurred
-    if (bytes_read == -1)
-    {
-        perror("Read error");
-        close(src_fd);
-        close(dest_fd);
-        return;
-    }
-
-    // Close the file descriptors
-    close(src_fd);
-    close(dest_fd);
-
-    write(client_fd_write, "File downloaded.", 17);
-}
-void comments(char *buffer, int client_fd_write)
+int comments(char *buffer, int client_fd_write, int server , char* server_dir_name)
 {
     // Get the command name
     char temp[strlen(buffer) + 1];
@@ -384,16 +456,18 @@ void comments(char *buffer, int client_fd_write)
         {
             // Pass the rest of the command to the command_help function
             command_help(client_fd_write, buffer);
+            return 1;
         }
         else if (strcmp(token, "list") == 0)
         {
             // Call your function to handle the "list" command here
             list(client_fd_write);
+            return 1;
         }
         else if (strcmp(token, "readF") == 0)
         {
             // Call your function to handle the "readF" command here
-            readF(client_fd_write, buffer);
+            return readF(client_fd_write, buffer);
         }
         else if (strcmp(token, "writeT") == 0)
         {
@@ -403,7 +477,7 @@ void comments(char *buffer, int client_fd_write)
             {
                 char message[] = "Missing file name.\n";
                 write(client_fd_write, message, sizeof(message));
-                return;
+                return 0;
             }
 
             char *line_number_str = strtok(NULL, " ");
@@ -414,11 +488,15 @@ void comments(char *buffer, int client_fd_write)
             {
                 char message[] = "Missing content to write.\n";
                 write(client_fd_write, message, sizeof(message));
-                return;
+                return 0;
             }
             printf("CONTENT = %s\n", content);
-            write_to_file(filename, content);
-            write(client_fd_write, "Content written to file.\n", 26);
+            int a = write_to_file(filename, content);
+            if (a == 1)
+            {
+                write(client_fd_write, "Content written to file.\n", 26);
+            }
+            return a;
         }
         else if (strcmp(token, "upload") == 0)
         {
@@ -428,9 +506,9 @@ void comments(char *buffer, int client_fd_write)
             {
                 char message[] = "Missing file name.\n";
                 write(client_fd_write, message, sizeof(message));
-                return;
+                return 0;
             }
-            upload_file(client_fd_write, filename);
+            return upload_file(client_fd_write, filename);
         }
         else if (strcmp(token, "download") == 0)
         {
@@ -440,32 +518,52 @@ void comments(char *buffer, int client_fd_write)
             {
                 char message[] = "Missing file name.\n";
                 write(client_fd_write, message, sizeof(message));
-                return;
+                return 0;
             }
-            download_file(client_fd_write, filename);
+            return download_file(client_fd_write, filename);
         }
-    }
-    else if (strcmp(token, "archServer") == 0)
-    {
-        // Call your function to handle the "archServer" command here
-    }
-    else if (strcmp(token, "quit") == 0)
-    {
-        // Call your function to handle the "quit" command here
-    }
-    else if (strcmp(token, "killServer") == 0)
-    {
-        // Call your function to handle the "killServer" command here
+
+        else if (strcmp(token, "archServer") == 0)
+        {
+            char *filename = strtok(NULL, " ");
+            char cwd[1024];
+
+            // Get the current working directory
+            if (getcwd(cwd, sizeof(cwd)) != NULL)
+            {
+                // Call your function to handle the "archServer" command
+                return archive_server_files(client_fd_write, filename, cwd);
+            }
+            else
+            {
+                perror("getcwd() error");
+                return -1;
+            }
+        }
+        else if (strcmp(token, "quit") == 0)
+        {
+            // Call your function to handle the "quit" command here
+            return 0;
+        }
+        else if (strcmp(token, "killServer") == 0)
+        {
+            // Call your function to handle the "killServer" command here
+            write(client_fd_write, "Server is shutting down...", 26);
+            kill(server, SIGINT);
+            return 1;
+        }
+        return 0;
     }
     else
     {
         char message[] = "Invalid command.\n";
         write(client_fd_write, message, sizeof(message));
+        return 0;
     }
 }
 /*okay now i should handle commands*/
 
-void serve_client(int client_fd_write, int client_fd_read)
+void serve_client(int client_fd_write, int client_fd_read, int server , char* server_dir_name)
 {
     // Send a message to the client
 
@@ -489,7 +587,8 @@ void serve_client(int client_fd_write, int client_fd_read)
                 close(client_fd_write);
                 break;
             }
-            comments(buffer, client_fd_write);
+            if (comments(buffer, client_fd_write, server , server_dir_name) == 0)
+                continue;
             memset(buffer, 0, sizeof(buffer));
         }
         else
@@ -497,7 +596,6 @@ void serve_client(int client_fd_write, int client_fd_read)
             printf("Client disconnected EXIT\n");
             break;
         }
-        
     }
     memset(buffer, 0, sizeof(buffer));
     num_clients--;
@@ -520,7 +618,7 @@ int open_read_fifo(int client_pid)
     }
     return client_fd_read;
 }
-int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_queue, int server)
+int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_queue, int server , char* server_dir_name)
 {
     // Read the client's request from the server FIFO
     struct sigaction sa;
@@ -543,7 +641,7 @@ int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_
         printf("Received request from client %ld: %sa\n", client_pid, request_type);
         printf("Server PID: %lda\n", server_pid);
         // Check if the server's PID in the request matches the actual PID of the server
-        if (server_pid != server)
+        if ((int)server_pid != (int)server)
         {
             fprintf(stderr, "Server PID in the request does not match the actual PID of the server.\n");
             return 1;
@@ -576,7 +674,7 @@ int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_
                 if (pid == 0)
                 {
                     // Child process
-                    serve_client(client_fd_write, client_fd_read);
+                    serve_client(client_fd_write, client_fd_read, server , server_dir_name);
                 }
                 else if (pid > 0)
                 {
@@ -619,7 +717,7 @@ int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_
                 if (pid == 0)
                 {
                     // Child process
-                    serve_client(client_fd_write, client_fd_read);
+                    serve_client(client_fd_write, client_fd_read, server , server_dir_name);
                 }
                 else if (pid > 0)
                 {
@@ -689,7 +787,7 @@ int accept_client(int client_fd_write, int max_number_of_clients, Queue *client_
             // Child process
             int queued_client_fd_write = open(queued_client_fifo_write, O_WRONLY);
             int queued_client_fd_read = open(queued_client_fifo_read, O_RDONLY);
-            serve_client(queued_client_fd_write, queued_client_fd_read);
+            serve_client(queued_client_fd_write, queued_client_fd_read, server , server_dir_name);
             exit(EXIT_SUCCESS);
         }
         else if (pid > 0)
@@ -789,7 +887,7 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        accept_client(server_fifo_fd, max_number_of_clients, client_queue, server_pid);
+        accept_client(server_fifo_fd, max_number_of_clients, client_queue, server_pid , dir_name);
         // printf("Num clients = %d\n", num_clients);
     }
 
